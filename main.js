@@ -1,5 +1,4 @@
 const core = require('@actions/core');
-const tc = require('@actions/tool-cache');
 const shell = require('shelljs');
 const fs = require('fs');
 
@@ -7,15 +6,11 @@ function run() {
     try {
         const lane = core.getInput('lane', { required: true });
         const optionsInput = core.getInput('options', { required: false });
+        const env = core.getInput('env', { required: false });
         const subdirectory = core.getInput('subdirectory', { required: false });
-        const bundleInstallPath = core.getInput('bundle-install-path', { required: false });
-        const skipTracking = core.getInput('skip-tracking', { required: false });
+        const verbose = core.getInput('verbose', { required: false });
 
         console.log(`Executing lane ${lane} on ${process.env.RUNNER_OS}.`);
-
-        if (skipTracking !== "true") {
-            shell.exec(`curl -s -X POST -H \"Content-Type:application/json\" https://us-central1-github-fastlane-action.cloudfunctions.net/registerActionRun -d '{\"repository\":\"${process.env["GITHUB_REPOSITORY"]}\", \"runnerOS\":\"${process.env["RUNNER_OS"]}\", \"usesOptions\":\"${!!optionsInput}\", \"usesSubdirectory\":\"${!!subdirectory}\", \"usesBundleInstallPath\":\"${!!bundleInstallPath}\"}'`);
-        }
 
         if (subdirectory) {
             if (subdirectory.startsWith("/")) {
@@ -44,18 +39,6 @@ function run() {
             deserializedOptions = {};
         }
 
-        const supposedGemfilePath = `${process.cwd()}/Gemfile`;
-        let fastlaneCommand;
-        if (fs.existsSync(supposedGemfilePath)) {
-            installBundleDependencies(supposedGemfilePath, bundleInstallPath);
-
-            fastlaneCommand = "bundle exec fastlane";
-        } else {
-            installFastlaneIfNecessary();
-
-            fastlaneCommand = "fastlane"
-        }
-
         let fastlaneOptions = [];
         for (let optionKey in deserializedOptions) {
             if (Object.prototype.hasOwnProperty.call(deserializedOptions, optionKey)) {
@@ -63,6 +46,15 @@ function run() {
             }
         }
 
+        if (verbose === "true") {
+            fastlaneOptions.push("--verbose");
+        }
+
+        if (env && env.length > 0) {
+            fastlaneOptions.push(`--env ${env}`);
+        }
+
+        const fastlaneCommand = "bundle exec fastlane";
         let fastlaneExecutionResult;
         if (fastlaneOptions.length === 0) {
             fastlaneExecutionResult = shell.exec(`${fastlaneCommand} ${lane}`);
@@ -75,39 +67,6 @@ function run() {
         }
     } catch (error) {
         setFailed(error);
-    }
-}
-
-function installBundleDependencies(pathToGemFile, customInstallPath) {
-    installBundlerIfNeeded();
-    configureBundler(customInstallPath);
-
-    const initialDirectory = process.cwd();
-    const pathToGemFileFolder = pathToGemFile.split("/").slice(0, -1).join("/");
-    shell.cd(pathToGemFileFolder);
-    shell.exec("bundle install --jobs 2");
-    shell.cd(initialDirectory);
-}
-
-function installFastlaneIfNecessary() {
-    if (!shell.which("fastlane")) {
-        installUsingRubyGems("fastlane");
-    }
-}
-
-function installBundlerIfNeeded() {
-    if (!shell.which('bundle')) {
-        installUsingRubyGems("bundler");
-    }
-}
-
-function installUsingRubyGems(packageName) {
-    shell.exec(`sudo gem install ${packageName}`);
-}
-
-function configureBundler(customInstallPath) {
-    if (customInstallPath) {
-        shell.exec(`bundle config path ${customInstallPath}`);
     }
 }
 
